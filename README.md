@@ -15,3 +15,16 @@ Este repositorio contiene el código fuente y el análisis de datos para el Trab
    - `studentInfo.csv`
    - `studentAssessment.csv`
    - `assessments.csv`
+
+## 🛠️ Requisitos de Instalación
+
+```bash
+# 1. Clonar el repositorio
+git clone <https://github.com/Gonzalo-Betancourt/Parical1_Analisis_Datos>
+cd Parical1_Analisis_Datos
+
+# 2. Instalar las dependencias
+pip install -r requirements.txt
+
+# 3. Ejecutar el dashboard de Streamlit
+streamlit run app.py
