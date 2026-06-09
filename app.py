@@ -6,41 +6,96 @@ import seaborn as sns
 # 1. Configuración de página
 st.set_page_config(page_title="Dashboard OULAD - TPI", layout="wide", page_icon="🎓")
 
-# 2. Funciones Modulares y Cache
+import numpy as np
+import sqlite3
+import os
+
+# 2. Funciones Modulares y Cache (Proceso de ETL robusto y exportación a SQLite)
 @st.cache_data
-def load_and_transform_data():
-    """Carga los CSVs y aplica el ETL avanzado idéntico al del Notebook"""
-    student_info = pd.read_csv('studentInfo.csv')
-    student_assessment = pd.read_csv('studentAssessment.csv')
-    assessments = pd.read_csv('assessments.csv')
-    
-    # Merge de tablas
-    df_eval = pd.merge(student_assessment, assessments, on='id_assessment', how='inner')
-    df_master = pd.merge(df_eval, student_info, on=['id_student', 'code_module', 'code_presentation'], how='inner')
-    
-    # Tratamiento Avanzado de Nulos
-    df_master['score'] = df_master.groupby('assessment_type')['score'].transform(lambda x: x.fillna(x.median()))
-    moda_imd = df_master['imd_band'].mode()[0]
-    df_master['imd_band'] = df_master['imd_band'].fillna(moda_imd)
-    
-    # Cálculo de Retraso (Feature Engineering para responder la Pregunta 1)
-    df_master['date'] = pd.to_numeric(df_master['date'], errors='coerce')
-    df_master['retraso'] = df_master['date_submitted'] - df_master['date']
-    
-    # Eliminación de Outliers (IQR)
-    Q1 = df_master['score'].quantile(0.25)
-    Q3 = df_master['score'].quantile(0.75)
-    IQR = Q3 - Q1
-    limite_inferior = Q1 - 1.5 * IQR
-    limite_superior = Q3 + 1.5 * IQR
-    df_clean = df_master[(df_master['score'] >= limite_inferior) & (df_master['score'] <= limite_superior)].copy()
-    
-    # Feature Engineering adicional
-    df_clean['weight_adj'] = df_clean['weight'].replace(0, 1)
-    df_clean['Indice_Rendimiento'] = df_clean.groupby('code_module')['score'].transform(lambda x: (x - x.mean()) / x.std())
-    df_clean['Indice_Rendimiento'] = df_clean['Indice_Rendimiento'].fillna(0)
-    
-    return df_clean
+def load_clean_and_export_data(export_db=True):
+    """
+    Carga los CSVs y aplica el ETL avanzado, imputaciones, normalización,
+    Feature Engineering (Índice de Constancia) y exporta a base de datos SQLite para Grafana.
+    """
+    try:
+        # Validación de existencia de archivos
+        required_files = ['studentInfo.csv', 'studentAssessment.csv', 'assessments.csv']
+        for file in required_files:
+            if not os.path.exists(file):
+                raise FileNotFoundError(f"El archivo requerido '{file}' no se encuentra en el directorio actual.")
+                
+        student_info = pd.read_csv('studentInfo.csv')
+        student_assessment = pd.read_csv('studentAssessment.csv')
+        assessments = pd.read_csv('assessments.csv')
+        
+        # Merge de tablas relacionales
+        df_eval = pd.merge(student_assessment, assessments, on='id_assessment', how='inner')
+        df_master = pd.merge(df_eval, student_info, on=['id_student', 'code_module', 'code_presentation'], how='inner')
+        
+        # Normalización de strings en columnas categóricas (Estandarización requerida por rúbrica)
+        string_cols = {
+            'code_module': 'upper',
+            'code_presentation': 'upper',
+            'assessment_type': 'upper',
+            'gender': 'upper',
+            'region': 'title',
+            'highest_education': 'title',
+            'disability': 'upper',
+            'final_result': 'title'
+        }
+        for col, method in string_cols.items():
+            if col in df_master.columns:
+                if method == 'upper':
+                    df_master[col] = df_master[col].astype(str).str.strip().str.upper()
+                elif method == 'title':
+                    df_master[col] = df_master[col].astype(str).str.strip().str.title()
+        
+        # Tratamiento Avanzado de Nulos
+        df_master['score'] = df_master.groupby('assessment_type')['score'].transform(lambda x: x.fillna(x.median()))
+        
+        moda_imd = df_master['imd_band'].mode()[0]
+        df_master['imd_band'] = df_master['imd_band'].fillna(moda_imd)
+        df_master['imd_band'] = df_master['imd_band'].astype(str).str.strip()
+        
+        # Cálculo de Retraso con imputación de fechas
+        df_master['date'] = pd.to_numeric(df_master['date'], errors='coerce')
+        df_master['retraso'] = df_master['date_submitted'] - df_master['date']
+        df_master['retraso'] = df_master['retraso'].fillna(0)
+        
+        # Eliminación de Outliers mediante Rango Intercuartílico (IQR)
+        Q1 = df_master['score'].quantile(0.25)
+        Q3 = df_master['score'].quantile(0.75)
+        IQR = Q3 - Q1
+        limite_inferior = Q1 - 1.5 * IQR
+        limite_superior = Q3 + 1.5 * IQR
+        df_clean = df_master[(df_master['score'] >= limite_inferior) & (df_master['score'] <= limite_superior)].copy()
+        
+        # Feature Engineering adicional
+        df_clean['weight_adj'] = df_clean['weight'].replace(0, 1)
+        
+        # Variable A: Z-score de calificaciones por módulo
+        df_clean['Indice_Rendimiento'] = df_clean.groupby('code_module')['score'].transform(lambda x: (x - x.mean()) / x.std())
+        df_clean['Indice_Rendimiento'] = df_clean['Indice_Rendimiento'].fillna(0)
+        
+        # Variable B: Índice de Constancia basado en comportamiento de entrega (Feature Engineering Complejo)
+        df_clean['temp_scoring'] = np.where(df_clean['retraso'] <= 0, 1.0, 1.0 / (1.0 + df_clean['retraso']))
+        df_clean['Indice_Constancia'] = df_clean.groupby('id_student')['temp_scoring'].transform('mean')
+        df_clean.drop(columns=['temp_scoring'], inplace=True)
+        
+        # Exportación relacional a SQLite para Grafana (Hito 4)
+        if export_db:
+            db_path = 'oulad_clean.db'
+            conn = sqlite3.connect(db_path)
+            df_clean.to_sql('student_performance', conn, if_exists='replace', index=False)
+            conn.close()
+            # Se imprime sin emojis para evitar problemas de encoding en la terminal de Windows (cp1252)
+            print(f"[OK] ETL de Streamlit exitoso. Datos guardados en '{db_path}' (Tabla: 'student_performance')")
+            
+        return df_clean
+    except Exception as e:
+        # Registro seguro de errores en consola
+        print(f"[ERROR] Error critico en el proceso de carga y transformacion: {str(e)}")
+        raise e
 
 def main():
     st.title("🎓 Trabajo Práctico Integrador: Análisis de Desempeño Educativo")
@@ -57,7 +112,7 @@ def main():
     ])
     
     try:
-        df = load_and_transform_data()
+        df = load_clean_and_export_data(export_db=True)
         
         # --- TAB 1: DASHBOARD INTERACTIVO ---
         with tabs[0]:
@@ -93,9 +148,10 @@ def main():
             if df_filtered.empty:
                 st.warning("⚠️ No hay datos que coincidan con los filtros seleccionados.")
             else:
-                kpi1, kpi2, kpi3 = st.columns(3)
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
                 total_evaluaciones = len(df_filtered)
                 promedio_score = df_filtered['score'].mean()
+                promedio_constancia = df_filtered['Indice_Constancia'].mean()
                 
                 # Tasa de aprobación basada en estudiantes únicos
                 estudiantes_unicos = df_filtered['id_student'].nunique()
@@ -105,6 +161,7 @@ def main():
                 kpi1.metric(label="📄 Total Evaluaciones", value=f"{total_evaluaciones:,}")
                 kpi2.metric(label="📈 Promedio Calificación", value=f"{promedio_score:.2f} / 100")
                 kpi3.metric(label="✅ Tasa de Aprobación", value=f"{tasa_aprobacion:.1f}%")
+                kpi4.metric(label="⏱️ Índice de Constancia", value=f"{promedio_constancia:.2f} / 1.00")
                 st.divider()
 
                 col1, col2 = st.columns(2)

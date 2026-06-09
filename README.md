@@ -1,8 +1,8 @@
-# Dashboard OULAD - Trabajo Práctico Integrador
+# Dashboard OULAD - Trabajo Práctico Integrador 🎓
 
 Este repositorio contiene el código fuente y el análisis de datos para el Trabajo Práctico Integrador de la materia "Análisis de Datos Inicial" (Tecnicatura Universitaria en Programación).
 
-## Contenido del Proyecto
+## 🚀 Contenido del Proyecto
 
 1. **Jupyter Notebook (`Template_TPI_Analisis_Datos.ipynb`)**: 
    Contiene todo el proceso de Análisis de Datos, incluyendo la limpieza (ETL), tratamiento de nulos, detección de *outliers* y Feature Engineering, además de gráficos estadísticos con conclusiones relevantes.
@@ -16,15 +16,25 @@ Este repositorio contiene el código fuente y el análisis de datos para el Trab
    - `studentAssessment.csv`
    - `assessments.csv`
 
-## Requisitos de Instalación
+## 🛠️ Requisitos de Instalación
+
+Para ejecutar este proyecto de forma local, necesitas tener Python instalado y ejecutar los siguientes comandos:
 
 ```bash
 # 1. Clonar el repositorio
-git clone <https://github.com/Gonzalo-Betancourt/Parical1_Analisis_Datos>
-cd Parical1_Analisis_Datos
+git clone <URL_DE_TU_REPOSITORIO>
+cd <NOMBRE_DE_LA_CARPETA>
 
 # 2. Instalar las dependencias
 pip install -r requirements.txt
 
 # 3. Ejecutar el dashboard de Streamlit
 streamlit run app.py
+```
+
+## 📊 Hitos Cumplidos
+* **Hito 1:** Elección del Dataset (OULAD) y Planteo de Hipótesis.
+* **Hito 2:** Limpieza y Preparación (ETL).
+* **Hito 3:** Análisis Exploratorio y Visualización.
+* **Hito 4:** Construcción del Dashboard Interactivo.
+* **Hito 5:** Propuestas de Mejora basadas en datos.
